@@ -6,11 +6,11 @@ package ru.campus
 
 import ru.campus.parser.sdk.model.Credentials
 import ru.campus.parser.sdk.model.ParserResult
-import ru.campus.parsers.template.TemplateParser
+import ru.campus.parsers.donstu.DonStuParser
 import ru.campus.parsers.tests.sdk.dump.createDumpRequestsParserApi
 
 suspend fun main() {
-    val parser = TemplateParser(
+    val parser = DonStuParser(
         credentials = Credentials("", ""),
         parserApi = createDumpRequestsParserApi(dumpDirName = "app/dump")
     )

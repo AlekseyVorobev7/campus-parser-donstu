@@ -11,7 +11,7 @@ plugins {
     `maven-publish`
 }
 
-group = "me.campusapp.parsers"
+group = "me.campusapp.donstu"
 version = "0.1.0"
 
 dependencies {
@@ -35,6 +35,9 @@ tasks.withType<AbstractTestTask> {
 }
 
 java {
+    toolchain {
+        languageVersion.set(JavaLanguageVersion.of(17))
+    }
     withJavadocJar()
     withSourcesJar()
 }

@@ -1,4 +1,4 @@
-package ru.campus.parsers.template
+package ru.campus.parsers.donstu
 
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
@@ -16,7 +16,7 @@ class DumpParserTest {
     @Ignore
     @Test
     fun success() = runTest {
-        val collector = TemplateParser(
+        val collector = DonStuParser(
             credentials = Credentials("", ""),
             httpClient = createDumpMockHttpClient(),
             parserApi = createDumpMockParserApi(),

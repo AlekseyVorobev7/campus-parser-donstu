@@ -2,8 +2,7 @@
  * Copyright 2022 LLC Campus.
  */
 
-package ru.campus.parsers.template
-
+package ru.campus.parsers.donstu
 import io.ktor.client.HttpClient
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -30,13 +29,13 @@ import ru.campus.parser.sdk.utils.getParserApiUrl
 import ru.campus.parser.sdk.utils.groupLessonsInIntervals
 import ru.campus.parser.sdk.utils.weekName
 import ru.campus.parser.sdk.utils.weekNumber
-import ru.campus.parsers.template.group.TemplateGroupEntitiesCollector
-import ru.campus.parsers.template.group.TemplateGroupScheduleCollector
+import ru.campus.parsers.donstu.group.DonStuGroupEntitiesCollector
+import ru.campus.parsers.donstu.group.DonStuGroupScheduleCollector
 
-class TemplateParser @JvmOverloads constructor(
+class DonStuParser @JvmOverloads constructor(
     credentials: Credentials,
     parserApiBaseUrl: String = getParserApiUrl(),
-    override val logger: Logger = LogManager.getLogger(TemplateParser::class.java),
+    override val logger: Logger = LogManager.getLogger(DonStuParser::class.java),
     httpClient: HttpClient = createDefaultHttpClient(logger),
     parserApi: ParserApi = ParserApi(
         httpClient = httpClient,
@@ -48,11 +47,11 @@ class TemplateParser @JvmOverloads constructor(
 ) : BaseParser(parserApi) {
     override val isWithoutSchedule: Boolean = false
 
-    private val groupsCollector: EntitiesCollector = TemplateGroupEntitiesCollector(
+    private val groupsCollector: EntitiesCollector = DonStuGroupEntitiesCollector(
         httpClient = httpClient,
         logger = logger
     )
-    private val groupsScheduleCollector: ScheduleCollector = TemplateGroupScheduleCollector(
+    private val groupsScheduleCollector: ScheduleCollector = DonStuGroupScheduleCollector(
         httpClient = httpClient,
         logger = logger,
         dateProvider = dateProvider
@@ -115,3 +114,5 @@ class TemplateParser @JvmOverloads constructor(
         return ProcessedEntity(savedEntity, savedSchedule)
     }
 }
+
+

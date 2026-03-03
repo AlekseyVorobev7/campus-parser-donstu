@@ -1,4 +1,4 @@
-rootProject.name = "campus-parser-template"
+rootProject.name = "campus-parser-donsru"
 
 enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 
