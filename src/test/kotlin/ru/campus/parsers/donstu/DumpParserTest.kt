@@ -13,7 +13,7 @@ import kotlin.test.assertEquals
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class DumpParserTest {
-    @Ignore
+
     @Test
     fun success() = runTest {
         val collector = DonStuParser(

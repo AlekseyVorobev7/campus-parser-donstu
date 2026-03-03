@@ -9,6 +9,9 @@ import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.client.request.headers
 import io.ktor.http.HttpHeaders
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.datetime.LocalDate
 import kotlinx.serialization.decodeFromString
@@ -29,18 +32,16 @@ class DonStuGroupScheduleCollector(
     private val logger: Logger,
     private val dateProvider: DateProvider,
 ) : ScheduleCollector {
+
     private val baseUrl = "https://edu.donstu.ru/api"
     private val json = Json { ignoreUnknownKeys = true }
+
     override suspend fun collectSchedule(
         entity: Entity,
         intervals: List<TimeTableInterval>,
     ): ScheduleCollector.Result {
-        // пауза перед каждой группой
-        //delay(300)
         val datesResponse = getWithRetry("$baseUrl/GetRaspDates?idGroup=${entity.code}")
-
         val datesData = json.decodeFromString<DonStuRaspDatesResponse>(datesResponse)
-
         val today = dateProvider.getCurrentDateTime().date
         val targetDates = datesData.data.dates
             .map { LocalDate.parse(it) }
@@ -48,101 +49,99 @@ class DonStuGroupScheduleCollector(
             .take(28)
 
         if (targetDates.isEmpty()) {
-            logger.info("Нет дат расписания для группы {} (id={}), даты с сервера: {}",
-                entity.name, entity.code, datesData.data.dates)
+            logger.info(
+                "Нет дат расписания для группы {} (id={}), даты с сервера: {}",
+                entity.name, entity.code, datesData.data.dates
+            )
             return ScheduleCollector.Result(
                 processedEntity = entity,
                 weekScheduleItems = emptyList()
             )
         }
 
-        // Шаг 2: расписание на каждую дату
-        val weekScheduleItems = mutableListOf<WeekScheduleItem>()
-
-        for (date in targetDates) {
-            // Задержка пред каждой группой так как слищком много одновременных запросов (Наверно можно в BaseParser изменить количество паралльленых )
-            //delay(200)
-            val scheduleResponse = getWithRetry("$baseUrl/Rasp?idGroup=${entity.code}&sdate=$date")
-
-            val schedule = json.decodeFromString<DonStuScheduleResponse>(scheduleResponse)
-
-            if (schedule.data.rasp.isEmpty()) continue
-
-            // Строим интервалы по номеру занятия из JSON
-            schedule.data.rasp.forEach { lesson ->
-                val parsed = DonStuDisciplineParser.parse(lesson.disciplina)
-
-                val interval = TimeTableInterval(
-                    lessonNumber = lesson.nomerZanyatiya,
-                    startTime = lesson.nachalo,
-                    endTime = lesson.konec,
-                )
-
-                // Ссылка на вебинар если есть
-                val links = listOfNotNull(
-                    lesson.ssylka
-                        ?.takeIf { it.isNotBlank() }
-                        ?.let { Schedule.Link(title = "Ссылка", url = it) }
-                )
-
-                weekScheduleItems.add(
-                    WeekScheduleItem(
-                        dayOfWeek = date.dayOfWeek,
-                        timeTableInterval = interval,
-                        dayCondition = ExplicitDatePredicate(date),
-                        lesson = Schedule.Lesson(
-                            subject = parsed.subject,
-                            type = parsed.type,
-                            classroom = lesson.auditoriya
-                                ?.takeIf { if (it.length <= 1) { // it.isNotBlank()
-                                    logger.warn("Некорректная аудитория '{}' у группы {} на дату {}", it, entity.name, date)
-                                    false
-                                } else {
-                                    true
-                                }},
-                            building = null, // корпуса нет в API
-                            teachers = listOfNotNull(
-                                lesson.prepodavatel
-                                    ?.takeIf { it.isNotBlank() }
-                                    ?.let {
-                                        Schedule.Entity(
-                                            name = it,
-                                            code = lesson.kodPrepodavatelya?.toString()
-                                        )
-                                    }
+        val weekScheduleItems = coroutineScope {
+            targetDates
+                .map { date ->
+                    async {
+                        val scheduleResponse = getWithRetry("$baseUrl/Rasp?idGroup=${entity.code}&sdate=$date")
+                        Pair(date, json.decodeFromString<DonStuScheduleResponse>(scheduleResponse))
+                    }
+                }
+                .awaitAll()
+                .flatMap { (date, schedule) ->
+                    if (schedule.data.rasp.isEmpty()) return@flatMap emptyList()
+                    schedule.data.rasp.mapNotNull { lesson ->
+                        if (lesson.nachalo == null || lesson.konec == null || lesson.nomerZanyatiya == null) {
+                            logger.warn(
+                                "Нет временного интервала для пары '{}' группы {} на дату {}",
+                                lesson.disciplina, entity.name, date
+                            )
+                            return@mapNotNull null
+                        }
+                        val parsed = DonStuDisciplineParser.parse(lesson.disciplina)
+                        WeekScheduleItem(
+                            dayOfWeek = date.dayOfWeek,
+                            timeTableInterval = TimeTableInterval(
+                                lessonNumber = lesson.nomerZanyatiya,
+                                startTime = lesson.nachalo,
+                                endTime = lesson.konec,
                             ),
-                            links = links,
+                            dayCondition = ExplicitDatePredicate(date),
+                            lesson = Schedule.Lesson(
+                                subject = parsed.subject,
+                                type = parsed.type,
+                                classroom = lesson.auditoriya?.takeIf { it.length > 1 },
+                                building = null,
+                                teachers = listOfNotNull(
+                                    lesson.prepodavatel
+                                        ?.takeIf { it.isNotBlank() }
+                                        ?.let {
+                                            Schedule.Entity(
+                                                name = it,
+                                                code = lesson.kodPrepodavatelya?.toString()
+                                            )
+                                        }
+                                ),
+                                links = listOfNotNull(
+                                    lesson.ssylka
+                                        ?.takeIf { it.isNotBlank() }
+                                        ?.let { Schedule.Link(title = "Ссылка", url = it) }
+                                ),
+                            )
                         )
-                    )
-                )
-            }
+                    }
+                }
         }
 
         return ScheduleCollector.Result(
-
             processedEntity = entity,
             weekScheduleItems = weekScheduleItems,
         )
     }
+
     private suspend fun getWithRetry(url: String): String {
         while (true) {
             try {
                 val response: String = httpClient.get(url) {
                     headers {
-                        append(HttpHeaders.UserAgent, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                        append(
+                            HttpHeaders.UserAgent,
+                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                        )
                         append(HttpHeaders.Accept, "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
                     }
                 }.body()
                 if (!response.contains("Too many requests")) return response
                 logger.warn("Too many requests для {}. Ждём 8 секунд...", url)
                 delay(8_000)
-            } catch (e: java.net.SocketException) {
+            } catch (e: java.io.IOException) {
                 logger.warn("Сетевая ошибка для {} : {}. Ждём 5 секунд...", url, e.message)
                 delay(5_000)
             }
         }
     }
 }
+
 object DonStuDisciplineParser {
 
     private val PREFIXES = mapOf(
@@ -166,13 +165,12 @@ object DonStuDisciplineParser {
         val trimmed = raw.trim()
         for ((prefix, typeName) in PREFIXES) {
             if (trimmed.startsWith("$prefix ", ignoreCase = true)) {
-                val subject = trimmed.removePrefix("$prefix ")
-                    .trim()
-                return ParsedDiscipline(subject = subject, type = typeName)
+                return ParsedDiscipline(
+                    subject = trimmed.removePrefix("$prefix ").trim(),
+                    type = typeName
+                )
             }
         }
-        // Префикс не найден — возвращаем как есть
         return ParsedDiscipline(subject = trimmed, type = null)
     }
-
 }
