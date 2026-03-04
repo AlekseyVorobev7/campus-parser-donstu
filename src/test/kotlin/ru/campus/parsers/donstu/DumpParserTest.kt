@@ -20,7 +20,7 @@ class DumpParserTest {
             credentials = Credentials("", ""),
             httpClient = createDumpMockHttpClient(),
             parserApi = createDumpMockParserApi(),
-            dateProvider = { LocalDateTime.parse("2023-02-06T00:00:00") }
+            dateProvider = { LocalDateTime.parse("2026-04-18T00:00:00") }
         )
         val data: ParserResult = collector.parse()
 
